@@ -5,46 +5,42 @@ import (
 	"github.com/soafter/maggr/kit/msg"
 )
 
-type Maggr struct {
-	PassObfus  string
-	DateFormat string
-	Msg        msg.Msg
-	Db         db.Db
-}
+var (
+	Cfg ConfigFile
+	Ini = InitConfig{
+		DbFolder:   "./db/",
+		PassObfus:  "bullcalf",
+		DateFormat: "2006/01/02/15:04:05",
+		Version:    "2.0.0"}
+	Msg = msg.Msg{}
+	Db  = db.Db{}
+)
 
-type Config struct {
-	DbFolder   string //文件类数据库目录路径
-	DateFormat string //日期显示格式
-	PassObfus  string //密码混淆字符
-}
-
-func Init(cfg ...Config) Maggr {
-	var maggr = Maggr{}
-	//Default
-	dbFolder := "./db/"
-	passObfus := "bullcalf"
-	dateFormat := "2006/01/02/15:04:05"
-
-	if len(cfg) > 0 {
-		if len(cfg[0].DbFolder) > 0 {
-			dbFolder = cfg[0].DbFolder
-		}
-		if len(cfg[0].PassObfus) > 0 {
-			passObfus = cfg[0].PassObfus
-		}
-		if len(cfg[0].DateFormat) > 0 {
-			dateFormat = cfg[0].DateFormat
-		}
+func Setting(cfg InitConfig) error {
+	var (
+		err           error   = nil
+		setDbFolder   *string = &Ini.DbFolder
+		setPassObfus  *string = &Ini.DateFormat
+		setDateFormat *string = &Ini.PassObfus
+	)
+	if len(cfg.DbFolder) > 0 {
+		*setDbFolder = cfg.DbFolder
+	}
+	if len(cfg.PassObfus) > 0 {
+		*setPassObfus = cfg.PassObfus
+	}
+	if len(cfg.DateFormat) > 0 {
+		*setDateFormat = cfg.DateFormat
 	}
 
-	//Global
-	maggr.PassObfus = passObfus
-	maggr.DateFormat = dateFormat
+	var msgSetting *msg.Msg = &Msg
+	*msgSetting = msg.Init(msg.Msg{
+		DbFolder:   Ini.DbFolder,
+		DateFormat: Ini.DateFormat})
 
-	//Kit Setting
-	//就这么样。。。添加一个组件要做三处处理
-	maggr.Msg = msg.Init(msg.Config{DbFolder: dbFolder})
-	maggr.Db = db.Init(db.Config{DbFolder: dbFolder})
-
-	return maggr
+	var dbSetting *db.Db = &Db
+	*dbSetting = db.Init(db.Db{
+		DbFolder:   Ini.DbFolder,
+		DateFormat: Ini.DateFormat})
+	return err
 }

@@ -5,30 +5,27 @@ import (
 	"math/rand"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
-	badger "github.com/dgraph-io/badger/v2"
+	"github.com/boltdb/bolt"
 )
 
-//var baseDB = &ql.DBOper{DbFile: "DB/base.ql"}
-//var sysSettings map[string]string
-//var dbVersion = make(map[string]int)
-
 type Msg struct {
-}
-
-type Config struct {
-	DateFormat string
 	DbFolder   string
+	DateFormat string
 }
 
-//KV库操作预设变量
-//var KV *buntdb.DB
-//var KVconfig buntdb.Config
+//预设变量
+var (
+	Kv         *bolt.DB
+	DbFolder   = "./db/"
+	DateFormat = "2006/01/02/15:04:05"
+)
 
 func (m Msg) Print(parm ...interface{}) {
-	toTime := time.Now().Format("2006/01/02/15:04:05")
+	toTime := time.Now().Format(DateFormat)
 	if len(parm) > 0 {
 		fmt.Printf("\033[0;36mP\033[0m\033[0;32m[\033[0m%s\033[0;32m]\033[0m%s\n", toTime, fmt.Sprint(parm...))
 	} else {
@@ -36,53 +33,56 @@ func (m Msg) Print(parm ...interface{}) {
 	}
 }
 func (m Msg) Log(parm ...interface{}) {
-	toTime := time.Now().Format("2006/01/02/15:04:05")
+	toTime := time.Now().Format(DateFormat)
 	rand.Seed(int64(time.Now().Unix()))
-	//rsb := strconv.Itoa(rand.Intn(1000))
-	//logkey := strconv.FormatInt(time.Now().UnixNano(), 10) + "." + rsb
+	rsb := strconv.Itoa(rand.Intn(1000))
+	logkey := strconv.FormatInt(time.Now().UnixNano(), 10) + "." + rsb
 
 	if len(parm) > 0 {
 		fmt.Printf("\033[0;33mL\033[0m\033[0;32m[\033[0m%s\033[0;32m]\033[0m\033[0;33m%s\033[0m\n", toTime, fmt.Sprint(parm...))
-
+		var err error = nil
+		Kv, err = bolt.Open(DbFolder+"log.db", 0600, nil)
+		if err != nil {
+			m.Debug(err)
+		}
+		defer Kv.Close()
+		uerr := Kv.Update(func(tx *bolt.Tx) error {
+			b := tx.Bucket([]byte("Log"))
+			err := b.Put([]byte("msglog_"+logkey), []byte(`{"msg":"[L]`+fmt.Sprint(parm...)+`","date":"`+logkey+`"}`))
+			return err
+		})
+		if uerr != nil {
+			m.Debug(err)
+		}
+		//下面是一段读取代码，kv库的尝试暂且这样，不要纠结了。
 		/*
-			err := KV.Update(func(tx *buntdb.Tx) error {
-				_, _, err := tx.Set(logkey, `{"msg":"[L]`+fmt.Sprint(parm...)+`","date":"`+logkey+`"}`, nil)
-				return err
+			Kv.View(func(tx *bolt.Tx) error {
+				c := tx.Bucket([]byte("Log")).Cursor()
+
+				prefix := []byte("msglog_")
+				for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
+					m.Debug(string(k))
+					m.Debug(string(v))
+				}
+				return nil
+
 			})
-			if err != nil {
-				fmt.Printf("\033[0;31mE[%s]%s\033[0m\n", toTime, fmt.Sprint("SAVE LOG ERROR!!"))
-			}
 		*/
+
 	} else {
 		fmt.Printf("\033[0;31mE[%s]%s\033[0m\n", toTime, fmt.Sprint("No print parameters"))
 	}
 }
 
 func (m Msg) Debug(parm ...interface{}) {
-	toTime := time.Now().Format("2006/01/02/15:04:05")
-	/*
-		rand.Seed(int64(time.Now().Unix()))
-		rsb := strconv.Itoa(rand.Intn(1000))
-		logkey := strconv.FormatInt(time.Now().UnixNano(), 10) + "." + rsb
-	*/
-	//lognano := strconv.FormatInt(time.Now().UnixNano(), 10)
+	//Debug不再记录到Log数据库里，要记住
+	toTime := time.Now().Format(DateFormat)
 	msgtype := reflect.TypeOf(parm[0])
-
 	if len(parm) > 0 {
 		_, file, line, _ := m.DebugCaller(2)
 		ffile := strings.Split(file, "/")
 		filename := strings.Join(ffile[len(ffile)-2:], "/")
 		fmt.Printf("\033[0;31mD\033[0m\033[0;32m[\033[0m%s\033[0;32m]\033[0m\033[0;31m%s(%s)\033[0m<\033[0;36m%s\033[0m>%s\n", toTime, filename, fmt.Sprint(line), msgtype, fmt.Sprint(parm...))
-
-		/*
-			err := KV.Update(func(tx *buntdb.Tx) error {
-				_, _, err := tx.Set(lognano, `{"msg":"[D]`+filename+`(`+fmt.Sprint(line)+`)`+fmt.Sprint(parm...)+`","date":`+lognano+`}`, nil)
-				return err
-			})
-			if err != nil {
-				fmt.Printf("\033[0;31mE[%s]%s\033[0m\n", toTime, fmt.Sprint("SAVE LOG ERROR!!"))
-			}
-		*/
 
 	} else {
 		fmt.Printf("\033[0;31mE[%s]%s\033[0m\n", toTime, fmt.Sprint("No print parameters"))
@@ -127,6 +127,58 @@ func (m Msg) GetLog(parm ...interface{}) [][2]string {
 }
 */
 
+/*
+func (m Msg) I18n(s string) string {
+	saveDate := strconv.FormatInt(time.Now().UnixNano(), 10) //新建保存数据
+	reStr := s //传入的文本
+	newSave := false //假设不是新文本
+	if len(s) > 0 { //有文本长度
+		KV.View(func(tx *buntdb.Tx) error { //打开数据库
+			value, err := tx.Get(s) //取传入的文本
+			if err != nil {
+				reStr = s
+				newSave = true
+				return nil
+			} else {
+				if Config.Sys["Lang"] == "default" {
+					reStr = s
+				} else {
+					reInfo := I18nText{}
+					if err := json.Unmarshal([]byte(value), &reInfo); err != nil {
+						Debug(err)
+					}
+					if len(reInfo.Lang[Config.Sys["Lang"]]) > 0 {
+						reStr = reInfo.Lang[Config.Sys["Lang"]]
+					} else {
+						reStr = s
+					}
+				}
+			}
+			return nil
+		})
+	}
+	if newSave {
+		KV.Update(func(tx2 *buntdb.Tx) error {
+			saveText := I18nText{}
+			saveText.Date = saveDate
+			addLang := map[string]string{"zh-CHS": "", "zh-CHT": "", "en": "", "jp": ""}
+			saveText.Lang = addLang
+			saveTextJson, jerr := json.Marshal(saveText)
+			if jerr != nil {
+				Debug(jerr)
+			}
+			_, _, err := tx2.Set(s, string(saveTextJson), nil)
+			if err != nil {
+				Debug(err)
+			}
+			Log("添加了一条新的多语言记录：", s)
+			return nil
+		})
+	}
+	return reStr
+}
+a*/
+
 func (m Msg) DebugCaller(skip int) (name, file string, line int, ok bool) {
 	var pc uintptr
 	if pc, file, line, ok = runtime.Caller(skip); !ok {
@@ -136,48 +188,42 @@ func (m Msg) DebugCaller(skip int) (name, file string, line int, ok bool) {
 	return
 }
 
-func Init(cfg ...Config) Msg {
+func Init(cfg Msg) Msg {
 	//是不是直接把init的内容放入来？
-	var msg = Msg{}
-
-	dateFormat := "2006/01/02/15:04:05"
-	dbFolder := "./db/"
-
-	if len(cfg) > 0 {
-		if len(cfg[0].DateFormat) > 0 {
-			dateFormat = cfg[0].DateFormat
-		}
-		if len(cfg[0].DbFolder) > 0 {
-			dbFolder = cfg[0].DbFolder
-		}
+	var (
+		setDbFolder   *string = &DbFolder
+		setDateFormat *string = &DateFormat
+		err           error   = nil
+	)
+	if len(cfg.DbFolder) > 0 {
+		*setDbFolder = cfg.DbFolder
+	}
+	if len(cfg.DateFormat) > 0 {
+		*setDateFormat = cfg.DateFormat
 	}
 
-	//要在这里判断，如果没有这个目录就建一个
-	toTime := time.Now().Format(dateFormat)
-	fmt.Printf("\033[0;31mT[%s]%s\033[0m\n", toTime, dbFolder)
-	db, err := badger.Open(badger.DefaultOptions(dbFolder + "badger"))
+	//要在这里判断，如果没有这个目录就建一个<===========待
+	Kv, err = bolt.Open(DbFolder+"log.db", 0600, nil)
 	if err != nil {
-		fmt.Printf("\033[0;31mE[%s]%s\033[0m\n", toTime, err)
+		cfg.Debug(err)
 	}
-	defer db.Close()
+	defer Kv.Close()
+	Kv.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("Log"))
+		if b == nil {
+			b, err = tx.CreateBucket([]byte("Log"))
+			if err != nil {
+				cfg.Debug(err)
+			}
+		}
+		/*
+			if err := b.Put([]byte("0"), []byte("new Bucket")); err != nil {
+				cfg.Debug(err)
+			}
+		*/
+		return nil
+	})
 
-	/*
-		os.MkdirAll(dbFolder+"kv/", 0764)
-
-		var err error = nil
-		KV, err = buntdb.Open(dbFolder + "kv/logs.db")
-		if err != nil {
-			fmt.Printf("\033[0;31mE[%s]%s\033[0m\n", toTime, err)
-		}
-		KVconfig.SyncPolicy = buntdb.Always
-		if err := KV.ReadConfig(&KVconfig); err != nil {
-			fmt.Printf("\033[0;31mE[%s]%s\033[0m\n", toTime, err)
-		}
-		if err := KV.SetConfig(KVconfig); err != nil {
-			fmt.Printf("\033[0;31mE[%s]%s\033[0m\n", toTime, err)
-		}
-		//KV.CreateIndex("mlog", "*", buntdb.Desc(buntdb.IndexJSON("date")))
-		KV.CreateIndex("mlog", "*", buntdb.IndexJSON("date"))
-	*/
-	return msg
+	//cfg.Print("msg db folder：" + DbFolder)
+	return cfg
 }
